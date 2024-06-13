@@ -1,0 +1,706 @@
+import {
+  Col,
+  Row,
+  Form,
+  Card,
+  Tooltip,
+  Button,
+  OverlayTrigger,
+} from "react-bootstrap";
+import i18next from "i18next";
+import { useState } from "react";
+import Select from "react-select";
+import "./APASubmissionReport.css";
+import React, { useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
+import { useDispatch, useSelector } from "react-redux";
+import axiosInstance from "../../../Services/Interceptor";
+import { CommonTable } from "../../../Common/CommonTable/CommonTable";
+import Tokenvalidation from "../../../Authentication/Tokenvalidation";
+import { ViewFullApa } from "../../../Common/CommonViewApa/ViewFullApa";
+import APARollBackModal from "../../../Common/CommonRollBack/APARollBackModal";
+import { ConvertDateToBN } from "../../../Common/CommonFunctions/DateConverter";
+import { convertToBanglaNumerals } from "../../../Common/CommonFunctions/ConvertBnToEN";
+import { getFiscalYearData } from "../../../Redux/Actions/Apamanagement/FiscalYear/FiscalYearAction";
+import { getAPAVersionData } from "../../../Redux/Actions/APADeterminationTimeSubmission/APAVersionAction";
+import { Slide, toast } from "react-toastify";
+import CommonLoading from "../../../Common/CommonFunctions/CommonLoading";
+import Breadcrumb from "../../../Common/CommonBreadcrumb/Breadcrumb";
+import CryptoJS from "crypto-js";
+
+const APASubmissionReport = () => {
+  const {
+    watch,
+    register,
+    setValue,
+    handleSubmit,
+    formState: { errors },
+  } = useForm();
+
+  const dispatch = useDispatch();
+  const [show, setShow] = useState();
+  const { t, i18n } = useTranslation();
+  const [type, setType] = useState(false);
+  const [tabledata, setTabledata] = useState([]);
+  const [filteredData, setFilterData] = useState({});
+  const [structureId, setStructureId] = useState(null);
+  const [apaId, setApaId] = useState(null);
+  const [fiscalYearData, setFiscalYearData] = useState(null);
+  const { fiscalYear } = useSelector((state) => state?.fiscalYear);
+  const [showRollBackModal, setShowRollBackModal] = useState(false);
+
+  const [btnState, setBtnState] = useState("add");
+  const [allpreview, setAllpreview] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const [hierarchyData, setHierarchyData] = useState([]);
+  const [hierarchyId, setHierarchyId] = useState(null);
+
+  const [officeData, setOfficeData] = useState([]);
+  // const [officeId, setOfficeId] = useState(null);
+  const [organizationData, setOrganizationData] = useState([]);
+
+  const [selectAllOfice, setSelectAllOffice] = useState([]);
+  const [status,setStatus]=useState(null);
+
+  const decryptedId = CryptoJS.AES.decrypt(
+    localStorage.getItem("uKey"),
+    "USECRETKEY"
+  ).toString(CryptoJS.enc.Utf8);
+
+  useEffect(() => {
+    Tokenvalidation();
+    dispatch(getFiscalYearData(1));
+    dispatch(getAPAVersionData());
+    getMinistryByHierarchy();
+  }, [dispatch]);
+
+  let dynamicColumns = [];
+  if (status != 15) { 
+    dynamicColumns = [
+      {
+        Header: `${t("APASubmissionReport.draftProvider")}`,
+        accessor: "draftProvider",
+        className: "text-start",
+      }, 
+      {
+        Header: `${t("APASubmissionReport.finalProvider")}`,
+        accessor: "finalProvider",
+        className: "text-start",
+      },
+    ];
+  }
+
+
+  const COLUMNS = [
+    {
+      Header: `${t("APASubmissionReport.Sl_No")}`,
+      accessor: "Sl_No",
+      className: "wd-5p text-start",
+    },
+    {
+      Header: `${t("APASubmissionReport.OrganizationName")}`,
+      accessor: "OrganizationName",
+      className: "text-start",
+    },
+    {
+      Header: `${t("APASubmissionReport.hierarchy")}`,
+      accessor: "hierarchy",
+      className: "text-start",
+    },
+    {
+      Header: `${t("APASubmissionReport.submissionStatus")}`,
+      accessor: "submissionStatus",
+      className: "text-start",
+    },
+ 
+    ...dynamicColumns, // Spread the dynamic columns here if they exist
+   
+    {
+      Header: `${t("APASubmissionReport.draftSubmissionTime")}`,
+      accessor: "draftSubmissionTime",
+      className: "text-start",
+    },
+    {
+      Header: `${t("APASubmissionReport.finalSubmissionTime")}`,
+      accessor: "finalSubmissionTime",
+      className: "text-start",
+    },
+    {
+      Header: `${t("CommonBtn.action")}`,
+      accessor: "Action",
+      className: "wd-10p text-center",
+    },
+  ];
+
+  const submissionStatus = [
+    {
+      id: 19,
+      titleEn: "Final Submitted",
+      titleBn: "চূড়ান্ত এপিএ  দাখিল সম্পন্ন",
+    },
+    {
+      id: 17,
+      titleEn: "Draft Submitted",
+      titleBn: "খসড়া এপিএ  দাখিল সম্পন্ন",
+    },
+
+    {
+      id: 15,
+      titleEn: "Submission not completed",
+      titleBn: "দাখিল সম্পন্ন হয় নাই",
+    },
+    {
+      id: 100,
+      titleEn: "OverAll Status",
+      titleBn: " সার্বিক অবস্থা",
+    },
+  ];
+
+  const [selectAll, setSelectAll] = useState(false);
+  const options = organizationData?.map((item, index) => ({
+    value: item?.id,
+    label: i18n.language === "en" ? item?.nameEn : item?.nameBn,
+  }));
+
+  const handleSelectAll = () => {
+    setSelectAll(!selectAll);
+    const values = selectAll ? [] : options.map((option) => option.value);
+    setValue("organizationIds", values);
+  };
+
+  const handleChange = (selectedOptions) => {
+    const values = selectedOptions
+      ? selectedOptions.map((option) => option.value)
+      : [];
+    setValue("organizationIds", values);
+  };
+
+  ////////////////////////////////////////////////////////// 
+
+  const getMinistryByHierarchy = () => {
+    if (decryptedId) {
+      axiosInstance
+        .post(
+          `/core-module/api/v1/global-filter/ministry-by-hierarchy/${decryptedId}`
+        )
+        .then((res) => {
+          setHierarchyData(res?.data?.data);
+
+          if (res?.data?.data?.length !== 0) {
+            setValue("hierarchy", res?.data?.data[0]?.id);
+            setHierarchyId(res?.data?.data[0]?.id);
+            getOfficeData(res?.data?.data[0]?.id, "DEFAULT");
+          }
+        })
+        .catch((err) => {
+          console.log(err, "err");
+        });
+    }
+  };
+
+  const getOfficeData = (id, type) => {
+    axiosInstance
+      .post(`/core-module/api/v1/global-filter/lower-by-hierarchies/${id}`)
+      .then((res) => {
+        setOfficeData(res?.data?.data);
+        if (type === "DEFAULT") {
+          setValue("officeType", res?.data?.data[0]?.id);
+          getOrganizations(res?.data?.data[0]?.id, id, type);
+        } else {
+          setHierarchyId(id)
+          getOrganizations(res?.data?.data[0]?.id, id);
+        }
+
+      })
+      .catch((err) => {
+        console.log(err, "err");
+      });
+  };
+  const getOrganizations = (id, hieId, type) => {
+
+    if (type === "DEFAULT") {
+      axiosInstance
+        .post(
+          `/core-module/api/v1/global-filter/subordinate-organizations/${hieId}/${id}`
+        )
+        .then((res) => {
+          setOrganizationData(res?.data?.data);
+
+          //set all office 
+          const all_office = res?.data?.data?.map((item) => item?.id)
+          setSelectAllOffice(all_office);
+        })
+        .catch((err) => {
+          console.log(err, "err");
+        });
+    } else if (hierarchyId) {
+      axiosInstance
+        .post(
+          `/core-module/api/v1/global-filter/subordinate-organizations/${hieId ? hieId : hierarchyId}/${id}`
+        )
+        .then((res) => {
+          setOrganizationData(res?.data?.data);
+          //set all office 
+          const all_office = res?.data?.data?.map((item) => item?.id);
+          setSelectAllOffice(all_office);
+
+        })
+        .catch((err) => {
+          console.log(err, "err");
+        });
+    }
+  };
+
+  const hierarchyHandleChange = (id) => {
+    if (id) {
+      getOfficeData(id);
+      setHierarchyId(id);
+      setOfficeData([]);
+      setOrganizationData([]);
+    }
+    else {
+      setHierarchyId(null);
+      setOfficeData([]);
+      setOrganizationData([]);
+    };
+  }
+  const officeTypeHandleChange = (e) => {
+    if (e.target.value) {
+      getOrganizations(e.target.value);
+    } else {
+      setOrganizationData([]);
+
+    }
+  };
+
+
+  // For Search button function
+  const onSubmit = (data) => {
+
+    data.selectAllOfice = selectAllOfice;
+    setFiscalYearData(JSON.parse(data?.fiscalYearId));
+    let datas = {
+      fiscalYearId: JSON.parse(data?.fiscalYearId).id,
+      // organizationId: data?.organizationIds,
+      organizationId: data?.organizationIds ? data?.organizationIds : selectAllOfice,
+      statusId: data?.submissionStatusId == 100 ? null : data?.submissionStatusId,
+    };
+    setIsLoading(true);
+    Tokenvalidation();
+    axiosInstance
+      .post(`/report-service/api/v1/apa-submission-report/view-report`, datas)
+      .then((res) => {
+        setIsLoading(false);
+
+        if (res?.data?.data.length === 0) {
+          setTabledata([]);
+          toast.warning(t("CommonToast.notFound"), {
+            position: toast.POSITION.TOP_RIGHT,
+            hideProgressBar: false,
+            transition: Slide,
+            autoClose: 1000,
+            theme: "colored",
+          });
+        } else {
+          const alldata = res?.data?.data?.map((item, index) => ({
+            Sl_No:
+              i18next.language === "en"
+                ? index + 1
+                : convertToBanglaNumerals(index + 1),
+            OrganizationName: item?.organizationName,
+            hierarchy: item?.hierarchyName,
+            submissionStatus: (
+              <span
+                className={
+                  item?.statusId === 19 ||
+                    item?.statusId === 18 ||
+                    item?.statusId === 17 ||
+                    item?.statusId === 16
+                    ? "  text-success   fw-bold  "
+                    : "  text-danger  fw-bold  "
+                }
+              >
+                {(item?.statusId === 19 &&
+                  `${t("APASubmissionReport.finalcheckerSubmitted")}`) ||
+                  (item?.statusId === 18 &&
+                    `${t("APASubmissionReport.finalmekarSubmitted")}`) ||
+                  (item?.statusId === 17 &&
+                    `${t("APASubmissionReport.draftcheckerSubmitted")}`) ||
+                  (item?.statusId === 16 &&
+                    `${t("APASubmissionReport.draftmekarSubmitted")}`) ||
+                  (item?.statusId === 15 &&
+                    // `${t("APASubmissionReport.submissionNotcompleted")}-(${(item?.draftCheckerName===null) && t("Common.Draft") ||(item?.finalCheckerName===null) &&  t("Common.Final") || (item?.draftCheckerName===null && item?.finalCheckerName===null) &&  t("Common.Draft")})`)}
+                    `${t("APASubmissionReport.submissionNotcompleted")}`)}
+              </span>
+            ),
+            // draftProvider: item?.draftCheckerName,
+            // finalProvider: item?.finalCheckerName,
+
+            draftProvider: item?.statusId !== 15 && item?.draftCheckerName,
+            finalProvider: item?.statusId !== 15 && item?.finalCheckerName,
+            draftSubmissionTime:
+              item?.draftCheckerSubmittedAt &&
+              ConvertDateToBN(new Date(item?.draftCheckerSubmittedAt)),
+            finalSubmissionTime:
+              item?.finalCheckerSubmittedAt &&
+              ConvertDateToBN(new Date(item?.finalCheckerSubmittedAt)),
+            Action: (
+              <span className="">
+                <OverlayTrigger
+                  placement="top"
+                  overlay={<Tooltip>{t("CommonBtn.viewFullApa")}</Tooltip>}
+                >
+                  <Button
+                    variant="none"
+                    onClick={() => previewApa(item)}
+                    className="btn btn-primary btn-sm rounded-11 me-2"
+                  >
+                    <i className="fe fe-eye"></i>
+                  </Button>
+                </OverlayTrigger>
+                <OverlayTrigger
+                  placement="top"
+                  overlay={<Tooltip>{t("CommonBtn.returnApa")}</Tooltip>}
+                >
+                  <Button
+                    variant="none"
+                    className="btn btn-info btn-sm rounded-11 me-2"
+                    onClick={() => apaRollBack(item)}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 512 512"
+                      style={{ color: "white", height: "20px" }}
+                    >
+                      <path d="M48.5 224H40c-13.3 0-24-10.7-24-24V72c0-9.7 5.8-18.5 14.8-22.2s19.3-1.7 26.2 5.2L98.6 96.6c87.6-86.5 228.7-86.2 315.8 1c87.5 87.5 87.5 229.3 0 316.8s-229.3 87.5-316.8 0c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0c62.5 62.5 163.8 62.5 226.3 0s62.5-163.8 0-226.3c-62.2-62.2-162.7-62.5-225.3-1L185 183c6.9 6.9 8.9 17.2 5.2 26.2s-12.5 14.8-22.2 14.8H48.5z" />
+                    </svg>
+                  </Button>
+                </OverlayTrigger>
+              </span>
+            ),
+          }));
+
+          setTabledata(alldata);
+        }
+      })
+      .catch((err) => {
+        setIsLoading(false);
+        console.log(err, "errrr");
+      });
+  };
+
+  const previewApa = (item) => {
+    setStructureId(item?.structureId);
+    setFilterData({
+      fiscalYearId: item?.fiscalYearId,
+      mandatoryWeightId: item?.mandatoryWeightId,
+      organizationId: item?.organizationId,
+      isHigherOffice: 0,
+      structureId: item?.structureId,
+      OrganizationName: item?.organizationName,
+      hierarchy: item?.hierarchyName,
+    });
+    setShow(true);
+    setType(true);
+  };
+
+  const apaRollBack = (item) => {
+    const filterdata = {
+      fiscalYearId: item?.fiscalYearId,
+      isHigherOffice: 0,
+      mandatoryWeightId: item?.mandatoryWeightId,
+      organizationId: item?.organizationId,
+    };
+    axiosInstance
+      .post(
+        `/apa-config/api/v1/structure/preparation-preview/${item?.structureId}`,
+        filterdata
+      )
+      .then((res) => {
+        setAllpreview(res?.data?.data);
+        setApaId(res?.data?.data?.apaId, "res?.data?.data");
+        setShowRollBackModal(true);
+      })
+      .catch((err) => {
+        console.log(err);
+      });
+  };
+
+  //for dynamic col
+const handleStatusChange=(e)=>{ 
+  if (e.target.value==15){
+
+    setStatus(e.target.value);
+  }else{
+    setStatus(null);
+
+  }
+}
+
+  const toolkitData = {
+    title: t("Breadcrumb.subordinate_office.submissionReport"),
+    description: t("toolkitDescription.submissionReportDesc"),
+  };
+
+  return (
+    <div className="main-container container APARelatedTraning">
+      {/* breadcrumb-start */}
+      <Breadcrumb
+        toolkit={true}
+        toolkitData={toolkitData}
+        currentMenu={false}
+        mainMenu={t("Breadcrumb.subordinate_office.subordinate_office")}
+        subMenu={t("Breadcrumb.subordinate_office.submissionReport")}
+        subSubMenu={false}
+      />
+      {/* breadcrumb-end */}
+
+      <Card>
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <Card.Body className="p-2">
+            <Row>
+              {/* fiscalYear */}
+              <Col md={3}>
+                <Form.Label className="form-label mg-b-10 text-dark">
+                  {t("APASubmissionReport.fiscalYear")}
+                  <span className="text-danger">*</span>
+                </Form.Label>
+
+                <Form.Select
+                  {...register("fiscalYearId", {
+                    required: true,
+                  })}
+                >
+                  <option value="" disabled selected>
+                    {t("CommonBtn.placeholder")}
+                  </option>
+                  {fiscalYear?.map((item, index) => (
+                    <option key={index} value={JSON.stringify(item)}>
+                      {i18n.language === "en" ? item?.titleEn : item?.titleBn}
+                    </option>
+                  ))}
+                </Form.Select>
+                {errors?.fiscalYearId?.type === "required" && (
+                  <span className="text-danger" style={{ fontSize: "16px" }}>
+                    {i18n.language === "en" ? "Required " : "এই তথ্যটি আবশ্যক"}
+                  </span>
+                )}
+              </Col>
+
+
+              <Col lg={3} md={3} sm={6} xs={12}>
+                <Form.Label className="form-label mg-b-10 text-dark">
+                  {t("OfficeFilter.division")}
+                  <span className="text-danger">*</span>
+                </Form.Label>
+
+                <Form.Select
+                  {...register("hierarchy", {
+                    required: true,
+                  })}
+                  onChange={(event) =>
+                    hierarchyHandleChange(event.target.value)
+                  }
+                >
+                  <option value="">{t("CommonBtn.placeholder")}</option>
+
+                  {hierarchyData?.map((item, index) => (
+                    <>
+                      {index === 0 && (
+                        <option selected key={index} value={item?.id}>
+                          {i18n.language === "en" ? item?.nameEn : item?.nameBn}
+                        </option>
+                      )}
+                      {index !== 0 && (
+                        <option key={index} value={item?.id}>
+                          {i18n.language === "en" ? item?.nameEn : item?.nameBn}
+                        </option>
+                      )}
+                    </>
+                  ))}
+                </Form.Select>
+                {errors?.hierarchy?.type === "required" && (
+                  <span className="text-danger" style={{ fontSize: "16px" }}>
+                    {i18n.language === "en" ? " Required" : "এই তথ্যটি আবশ্যক"}
+                  </span>
+                )}
+              </Col>
+
+              <Col lg={3} md={3} sm={6} xs={12}>
+                <Form.Label className="form-label mg-b-10 text-dark">
+                  {t("Common.officeType")}
+                  <span className="text-danger">*</span>
+                </Form.Label>
+
+                <Form.Select
+                  {...register("officeType", {
+                    required: true,
+                  })}
+                  onChange={(e) => officeTypeHandleChange(e)}
+                >
+                  <option value="">{t("CommonBtn.placeholder")}</option>
+
+                  {officeData?.map((item, index) => (
+                    <>
+                      {index === 0 && (
+                        <option selected key={index} value={item?.id}>
+                          {i18n.language === "en" ? item?.nameEn : item?.nameBn}
+                        </option>
+                      )}
+                      {index !== 0 && (
+                        <option key={index} value={item?.id}>
+                          {i18n.language === "en" ? item?.nameEn : item?.nameBn}
+                        </option>
+                      )}
+                    </>
+                  ))}
+                </Form.Select>
+                {errors?.officeType?.type === "required" && (
+                  <span className="text-danger" style={{ fontSize: "16px" }}>
+                    {i18n.language === "en" ? "Required " : "এই তথ্যটি আবশ্যক"}
+                  </span>
+                )}
+              </Col>
+
+              <Col md={3}>
+                <Form.Label className="form-label mg-b-10 text-dark d-flex justify-content-between align-items-center">
+                  {t("APASubmissionReport.OrganizationName")}{" "}
+                  {/* <span className="text-danger">*</span> */}
+                  <Form.Check
+                    inline
+                    label={t("Common.selectAll")}
+                    type="checkbox"
+                    className="text-size-14 cursor-pointer"
+                    checked={selectAll}
+                    onChange={handleSelectAll}
+                  />
+                </Form.Label>
+
+
+                <Select
+                  isMulti
+                  {...register("organizationIds", { required: true })}
+                  placeholder={t("CommonBtn.placeholder")}
+                  noOptionsMessage={() =>
+                    i18n.language === "en"
+                      ? "No Option found..."
+                      : "পাওয়া যায়নি..."
+                  }
+                  onChange={handleChange}
+                  options={options}
+                  value={options.filter((option) =>
+                    watch("organizationIds")?.includes(option.value)
+                  )}
+                />
+                {errors?.organizationIds?.type === "required" && (
+                  <span className="text-danger" style={{ fontSize: "16px" }}>
+                    {i18n.language === "en" ? " Required" : "এই তথ্যটি আবশ্যক"}
+                  </span>
+                )}
+
+
+              </Col>
+
+
+              {/* submissionStatus */}
+              <Col md={3}>
+                <Form.Label className="form-label mg-b-10 text-dark">
+                  {t("APASubmissionReport.submissionStatus")}
+                  <span className="text-danger">*</span>
+                </Form.Label>
+
+                <Form.Select
+                  {...register("submissionStatusId", {
+                    required: true,
+                  })}
+                  
+
+                  onChange={handleStatusChange}
+                
+                >
+                  <option value="" disabled selected>
+                    {t("CommonBtn.placeholder")}
+                  </option>
+                  {submissionStatus?.map((item, index) => (
+                    <option key={index} value={item?.id}>
+                      {i18n.language === "en" ? item?.titleEn : item?.titleBn}
+                    </option>
+                  ))}
+                </Form.Select>
+                {errors?.submissionStatusId?.type === "required" && (
+                  <span className="text-danger" style={{ fontSize: "16px" }}>
+                    {i18n.language === "en" ? "Required " : "এই তথ্যটি আবশ্যক"}
+                  </span>
+                )}
+              </Col>
+            </Row>
+          </Card.Body>
+          <Card.Footer className="d-flex justify-content-end align-items-end p-1">
+            {/* Button */}
+            <Button className="btn btn-light-success " type="submit">
+              {t("CommonBtn.filter")}
+            </Button>
+          </Card.Footer>
+        </form>
+      </Card>
+
+      <Card>
+        <Card.Body>
+          <div className="table-responsive fileexport pos-relative">
+            {isLoading ? (
+              <CommonLoading />
+            ) : (
+              <>
+                {tabledata?.length > 0 ? (
+                  <CommonTable
+                    DATATABLE={tabledata}
+                    COLUMNS={COLUMNS}
+                    filter={true}
+                    sortBy={true}
+                    pagination={true}
+                  />
+                ) : (
+                  <div>
+                    <ul style={{ color: "#3C21F7" }}>
+                      <li className="text-size-20 py-2">
+                        {t("Common.useFilter")}
+                      </li>
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </Card.Body>
+      </Card>
+
+      {show && (
+        <ViewFullApa
+          type={type}
+          setType={setType}
+          show={show}
+          setShow={setShow}
+          structureId={structureId}
+          filteredData={filteredData}
+          fiscalYearData={fiscalYearData}
+          userType="REPORT"
+        />
+      )}
+
+      {showRollBackModal && (
+        <APARollBackModal
+          setShowRollBackModal={setShowRollBackModal}
+          showRollBackModal={showRollBackModal}
+          btnState={btnState}
+          apaId={apaId}
+          setBtnState={setBtnState}
+          allpreview={allpreview}
+        />
+      )}
+    </div>
+  );
+};
+
+export default APASubmissionReport;

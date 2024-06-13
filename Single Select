@@ -1,0 +1,425 @@
+import React, { useEffect } from "react";
+import { Button, Card, Col, Form, Row } from "react-bootstrap";
+import { useState } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { Slide, toast } from "react-toastify";
+import { useForm } from "react-hook-form";
+import axiosInstance from "../../../Services/Interceptor";
+import { getHierarchyData } from "../../../Redux/Actions/Configuration/HierarchyAction";
+import { getFiscalYearData } from "../../../Redux/Actions/Apamanagement/FiscalYear/FiscalYearAction";
+import { useTranslation } from "react-i18next";
+import Tokenvalidation from "../../../Authentication/Tokenvalidation";
+import SystemEvaluationReportTable from "./SystemEvaluationReportTable";
+import CommonLoading from "../../../Common/CommonFunctions/CommonLoading";
+import StaticHelpingToolkit from "../../../Common/CommonToolkit/StaticHelpingToolkit";
+import { StaticToolkitData } from "../../../Common/CommonToolkit/StaticToolkitData";
+import Breadcrumb from "../../../Common/CommonBreadcrumb/Breadcrumb";
+import Select from "react-select";
+import CryptoJS from "crypto-js";
+import DownloadReportType from "../../../Common/CommonReportService/DownloadReportType";
+
+const FinalAchievement = () => {
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setValue,
+    reset,
+    watch,
+    control,
+  } = useForm();
+
+  const report_Url = process.env.REACT_APP_EXTERNAL_REPORT; //pdf report -url
+  const dispatch = useDispatch();
+  const { t, i18n } = useTranslation();
+  const [showToolkit, setShowToolkit] = useState(false);
+
+  const [assessmentTableData, setAssessmentTableData] = useState([]);
+  const [reportPostData, setReportPostData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const { fiscalYear } = useSelector((state) => state?.fiscalYear);
+  const [hierarchyData, setHierarchyData] = useState([]);
+  const [hierarchyId, setHierarchyId] = useState(null);
+
+  const [officeData, setOfficeData] = useState([]);
+  const [organizationData, setOrganizationData] = useState([]);
+  const decryptedId = CryptoJS.AES.decrypt(
+    localStorage.getItem("uKey"),
+    "USECRETKEY"
+  ).toString(CryptoJS.enc.Utf8);
+
+  useEffect(() => {
+    Tokenvalidation();
+    dispatch(getFiscalYearData(1));
+    getMinistryByHierarchy();
+  }, [dispatch]);
+
+  const options = organizationData?.map((item, index) => ({
+    value: item?.id,
+    label: i18n.language === "en" ? item?.nameEn : item?.nameBn,
+  }));
+
+  const handleChange = (selectedOption) => {
+    setValue("organizationIds", selectedOption);
+  };
+
+  const getMinistryByHierarchy = () => {
+    if (decryptedId) {
+      axiosInstance
+        .post(
+          `/core-module/api/v1/global-filter/ministry-by-hierarchy/${decryptedId}`
+        )
+        .then((res) => {
+          setHierarchyData(res?.data?.data);
+
+          if (res?.data?.data?.length !== 0) {
+            setValue("hierarchy", res?.data?.data[0]?.id);
+            setHierarchyId(res?.data?.data[0]?.id);
+            getOfficeData(res?.data?.data[0]?.id, "DEFAULT");
+          }
+        })
+        .catch((err) => {
+          console.log(err, "err");
+        });
+    }
+  };
+
+  const getOfficeData = (id, type) => {
+    axiosInstance
+      .post(`/core-module/api/v1/global-filter/lower-by-hierarchies/${id}`)
+      .then((res) => {
+        setOfficeData(res?.data?.data);
+        if (type === "DEFAULT") {
+          setValue("officeType", res?.data?.data[0]?.id);
+          getOrganizations(res?.data?.data[0]?.id, id, type);
+        } else {
+          setHierarchyId(id);
+          setValue("officeType", res?.data?.data[0]?.id);
+          getOrganizations(res?.data?.data[0]?.id, id);
+        }
+      })
+      .catch((err) => {
+        console.log(err, "err");
+      });
+  };
+  const getOrganizations = (id, hieId, type) => {
+    if (type === "DEFAULT") {
+      axiosInstance
+        .post(
+          `/core-module/api/v1/global-filter/subordinate-organizations/${hieId}/${id}`
+        )
+        .then((res) => {
+          setOrganizationData(res?.data?.data);
+        })
+        .catch((err) => {
+          console.log(err, "err");
+        });
+    } else if (hierarchyId) {
+      axiosInstance
+        .post(
+          `/core-module/api/v1/global-filter/subordinate-organizations/${
+            hieId ? hieId : hierarchyId
+          }/${id}`
+        )
+        .then((res) => {
+          setOrganizationData(res?.data?.data);
+        })
+        .catch((err) => {
+          console.log(err, "err");
+        });
+    }
+  };
+
+  const hierarchyHandleChange = (id) => {
+    if (id) {
+      getOfficeData(id);
+      setHierarchyId(id);
+      setOfficeData([]);
+      setOrganizationData([]);
+      reset({ organizationIds: null });
+    } else {
+      setHierarchyId(null);
+      setOfficeData([]);
+      setOrganizationData([]);
+      reset({ organizationIds: null });
+    }
+  };
+  const officeTypeHandleChange = (e) => {
+    if (e.target.value) {
+      getOrganizations(e.target.value);
+      reset({ organizationIds: null });
+    } else {
+      setOrganizationData([]);
+      reset({ organizationIds: null });
+    }
+  };
+
+  const onSubmit = (data) => {
+    Tokenvalidation();
+    setIsLoading(true);
+    let postdata = {
+      fiscalYearId: data?.fiscalYearId,
+      organizationId: data?.organizationIds?.value,
+      reportType: 4,
+    };
+    axiosInstance
+      .post(
+        `/evaluation-service/api/v1/evaluation/evaluation-submission`,
+        postdata
+      )
+      .then((res) => {
+        if (res?.status === 200) {
+          setIsLoading(false);
+          setAssessmentTableData(res?.data?.data);
+          setReportPostData({
+            fiscalYearId: res?.data?.data?.fiscalYearId,
+            organizationId: res?.data?.data?.organizationId,
+            reportType: res?.data?.data?.reportType,
+            submissionTypeId: res?.data?.data?.submissionTypeId,
+            publishHigherOfficeComment:
+              res?.data?.data?.publishHigherOfficeComment,
+            publishManualScore: res?.data?.data?.publishManualScore,
+            organizationName: res?.data?.data?.organizationName,
+            hierarchyName: res?.data?.data?.hierarchyName,
+            reportName: res?.data?.data?.reportName,
+          });
+        }
+      })
+      .catch((err) => {
+        setIsLoading(false);
+        setAssessmentTableData([]);
+        setReportPostData(null);
+        toast.error(err?.message, {
+          position: toast.POSITION.TOP_RIGHT,
+          hideProgressBar: false,
+          transition: Slide,
+          autoClose: 1000,
+          theme: "colored",
+        });
+      });
+  };
+
+  const exportReport = () => {
+    const url = `${report_Url}/yearly-evaluation?fiscalYearId=${assessmentTableData?.fiscalYearId}&organizationId=${assessmentTableData?.organizationId}&reportType=${assessmentTableData?.reportType}`;
+    window.open(url, "_blank");
+  };
+
+  const toolkitData = {
+    title: t("Breadcrumb.subordinate_office.finalAchievement"),
+    description: t("toolkitDescription.finalAchievementDesc"),
+  };
+
+  return (
+    <div className="main-container container">
+      {/* breadcrumb-start */}
+      <Breadcrumb
+        toolkit={true}
+        toolkitData={toolkitData}
+        currentMenu={false}
+        mainMenu={t("Breadcrumb.subordinate_office.subordinate_office")}
+        subMenu={t("Breadcrumb.subordinate_office.finalAchievement")}
+        subSubMenu={false}
+      />
+      {/* breadcrumb-end */}
+
+      <Card>
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <Card.Body className="p-2">
+            <Row>
+              {/* Fiscal Year Field */}
+              <Col md={4}>
+                <Form.Label className="form-label mg-b-10 text-dark">
+                  {t("APADeterminationTimeSubmission.fiscalYear")}{" "}
+                  <span className="text-danger">*</span>
+                </Form.Label>
+
+                <Form.Select
+                  style={{ height: "40px" }}
+                  {...register("fiscalYearId", {
+                    required: true,
+                  })}
+                >
+                  <option selected value="">
+                    {t("CommonBtn.placeholder")}
+                  </option>
+                  {fiscalYear?.map((item, index) => (
+                    <option key={index} value={item?.id}>
+                      {i18n.language === "en" ? item?.titleEn : item?.titleBn}
+                    </option>
+                  ))}
+                </Form.Select>
+
+                {errors?.fiscalYearId?.type === "required" && (
+                  <span className="text-danger" style={{ fontSize: "16px" }}>
+                    {i18n.language === "en" ? " Required" : "এই তথ্যটি আবশ্যক"}
+                  </span>
+                )}
+              </Col>
+              {/* APA SubmissionVersion Field */}
+
+              {/* Hierarchy Field */}
+              <Col lg={4} md={3} sm={6} xs={12}>
+                <Form.Label className="form-label mg-b-10 text-dark">
+                  {t("OfficeFilter.division")}
+                  <span className="text-danger">*</span>
+                </Form.Label>
+
+                <Form.Select
+                  {...register("hierarchy", {
+                    required: true,
+                  })}
+                  onChange={(event) =>
+                    hierarchyHandleChange(event.target.value)
+                  }
+                >
+                  <option value="">{t("CommonBtn.placeholder")}</option>
+
+                  {hierarchyData?.map((item, index) => (
+                    <>
+                      {index === 0 && (
+                        <option selected key={index} value={item?.id}>
+                          {i18n.language === "en" ? item?.nameEn : item?.nameBn}
+                        </option>
+                      )}
+                      {index !== 0 && (
+                        <option key={index} value={item?.id}>
+                          {i18n.language === "en" ? item?.nameEn : item?.nameBn}
+                        </option>
+                      )}
+                    </>
+                  ))}
+                </Form.Select>
+                {errors?.hierarchy?.type === "required" && (
+                  <span className="text-danger" style={{ fontSize: "16px" }}>
+                    {i18n.language === "en" ? " Required" : "এই তথ্যটি আবশ্যক"}
+                  </span>
+                )}
+              </Col>
+
+              {/* Organization type Field */}
+              <Col lg={4} md={3} sm={6} xs={12}>
+                <Form.Label className="form-label mg-b-10 text-dark">
+                  {t("Common.officeType")}
+                  <span className="text-danger">*</span>
+                </Form.Label>
+
+                <Form.Select
+                  {...register("officeType", {
+                    required: true,
+                  })}
+                  onChange={(e) => officeTypeHandleChange(e)}
+                >
+                  <option value="">{t("CommonBtn.placeholder")}</option>
+
+                  {officeData?.map((item, index) => (
+                    <>
+                      {index === 0 && (
+                        <option selected key={index} value={item?.id}>
+                          {i18n.language === "en" ? item?.nameEn : item?.nameBn}
+                        </option>
+                      )}
+                      {index !== 0 && (
+                        <option key={index} value={item?.id}>
+                          {i18n.language === "en" ? item?.nameEn : item?.nameBn}
+                        </option>
+                      )}
+                    </>
+                  ))}
+                </Form.Select>
+                {errors?.officeType?.type === "required" && (
+                  <span className="text-danger" style={{ fontSize: "16px" }}>
+                    {i18n.language === "en" ? "Required " : "এই তথ্যটি আবশ্যক"}
+                  </span>
+                )}
+              </Col>
+
+              <Col md={4}>
+                <Form.Label className="form-label mg-b-10 text-dark">
+                  {t("APASubmissionReport.OrganizationName")}{" "}
+                  <span className="text-danger">*</span>
+                </Form.Label>
+
+                <Select
+                  // isMulti
+                  // isSearchable
+                  {...register("organizationIds", { required: true })}
+                  placeholder={t("CommonBtn.placeholder")}
+                  noOptionsMessage={() =>
+                    i18n.language === "en"
+                      ? "No Option found..."
+                      : "পাওয়া যায়নি..."
+                  }
+                  onChange={handleChange}
+                  options={options}
+                  value={watch("organizationIds")}
+                />
+                {errors?.organizationIds?.type === "required" && (
+                  <span className="text-danger" style={{ fontSize: "16px" }}>
+                    {i18n.language === "en" ? " Required" : "এই তথ্যটি আবশ্যক"}
+                  </span>
+                )}
+
+                <Row></Row>
+              </Col>
+            </Row>
+          </Card.Body>
+          <Card.Footer className="d-flex justify-content-end align-items-end gap-1 p-1">
+            <Button className="btn btn-light-success " type="submit">
+              {t("CommonBtn.filter")}
+            </Button>
+          </Card.Footer>
+        </form>
+      </Card>
+
+      <Card className="mt-3">
+        {assessmentTableData?.length !== 0 && !isLoading && (
+          <Card.Header className="d-flex justify-content-end align-items-center pb-0">
+            {/* <Button
+              variant="none"
+              className="mx-1 btn btn-sm btn-primary"
+              onClick={exportReport}
+            >
+              রিপোর্ট ডাউনলোড করুন <i className="fas fa-file-pdf"></i>
+            </Button> */}
+            {reportPostData !== null && (
+              <DownloadReportType
+                reportData={reportPostData}
+                urlEndpoint="yearly-evaluation"
+                setIsLoading={setIsLoading}
+              />
+            )}
+          </Card.Header>
+        )}
+        <Card.Body>
+          {isLoading ? (
+            <CommonLoading />
+          ) : assessmentTableData?.length !== 0 ? (
+            <SystemEvaluationReportTable
+              assessmentTableData={assessmentTableData}
+            />
+          ) : (
+            <div>
+              <ul style={{ color: "#3C21F7" }}>
+                <li className="text-size-20 py-2">
+                  {i18n.language === "en"
+                    ? "Please use the filter to view the APA Annual Achievement Report."
+                    : `এপিএ বার্ষিক অর্জনের প্রতিবেদন দেখার জন্য অনুগ্রহপূর্বক
+                    ফিল্টার ব্যবহার করুন।`}
+                </li>
+              </ul>
+            </div>
+          )}
+        </Card.Body>
+      </Card>
+
+      {showToolkit && (
+        <StaticHelpingToolkit
+          showToolkit={showToolkit}
+          setShowToolkit={setShowToolkit}
+          toolkitData={StaticToolkitData?.FinalAchievement}
+        />
+      )}
+    </div>
+  );
+};
+export default FinalAchievement;

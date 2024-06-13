@@ -1,0 +1,137 @@
+import React, { useEffect } from 'react';
+import { Col } from 'react-bootstrap';
+import Select from "react-select";
+import { getHashTagData } from '../../Redux/OthersCompo/HashTag/HashTagAction';
+import { useDispatch, useSelector } from 'react-redux';
+import { useTranslation } from 'react-i18next';
+import { useForm } from 'react-hook-form';
+
+const HashTagLists = ({ selected, setSelected }) => {
+    const {
+        watch,
+        register,
+        setValue, 
+        formState: { errors },
+    } = useForm();
+
+    const dispatch = useDispatch();
+    const { t, i18n } = useTranslation();
+    const { hashTagData } = useSelector((state) => state.hashTagData);
+    useEffect(() => {
+        dispatch(getHashTagData(1));
+        if (selected){
+            setValue("hashtagsIds", selected);
+        }
+    }, [dispatch]);
+
+    const options = hashTagData?.map((item, index) => ({
+        value: item?.nameBn,
+        label: i18n.language === "en" ? item?.nameEn : item?.nameBn,
+    }));
+
+    const handleChange = (selectedOptions) => {
+        const values = selectedOptions
+            ? selectedOptions?.map((option) => option?.value)
+            : [];
+        setValue("hashtagsIds", values);
+        setSelected(values);
+    };
+      
+
+
+    // Define custom styles for react-select
+    const customStyles = {
+        control: (base) => ({
+            ...base,
+            backgroundColor: 'lightgray', // Background of the main container
+            borderColor: 'gray', // Border color
+            '&:hover': {
+                borderColor: 'darkgray' // Border color on hover
+            }
+        }),
+        menu: (base) => ({
+            ...base,
+            backgroundColor: 'white', // Background of the dropdown menu
+            borderRadius: '5px', // Border radius
+            marginTop: '5px', // Space between control and menu
+        }),
+        option: (base, state) => ({
+            ...base,
+            backgroundColor: state.isSelected ? 'red' : 'white', // Background for selected options
+            color: state.isSelected ? 'white' : 'black', // Text color for selected options
+            '&:hover': {
+                backgroundColor: state.isSelected ? 'darkred' : 'lightgray', // Background on hover
+                color: state.isSelected ? 'white' : 'black',
+            }
+        }),
+        multiValue: (base) => ({
+            ...base,
+            backgroundColor: 'red', // Background color of selected items
+            borderRadius: '3px', // Border radius for selected items
+        }),
+        multiValueLabel: (base) => ({
+            ...base,
+            color: 'white', // Text color of selected items
+            fontWeight: 'bold', // Make text bold
+        }),
+        multiValueRemove: (base) => ({
+            ...base,
+            color: 'white', // Color of the remove button
+            '&:hover': {
+                backgroundColor: 'darkred', // Background on hover for remove button
+                color: 'white',
+            }
+        }),
+        placeholder: (base) => ({
+            ...base,
+            color: 'gray', // Color of placeholder text
+            fontStyle: 'italic', // Italicize placeholder text
+        }),
+        dropdownIndicator: (base) => ({
+            ...base,
+            color: 'gray', // Color of the dropdown indicator
+            '&:hover': {
+                color: 'black', // Color on hover
+            }
+        }),
+        clearIndicator: (base) => ({
+            ...base,
+            color: 'gray', // Color of the clear indicator
+            '&:hover': {
+                color: 'black', // Color on hover
+            }
+        }),
+    };
+ 
+    return (
+        <div>
+            <Col md={12}> 
+                <Select
+                    isMulti
+                    {...register("hashtagsIds", { required: true })}
+                    placeholder={t("CommonBtn.hashTagPlaceholder")}
+                    noOptionsMessage={() =>
+                        i18n.language === "en"
+                            ? "No Option found..."
+                            : "পাওয়া যায়নি..."
+                    }
+                    onChange={handleChange}
+                    options={options}
+                    value={options?.filter((option) =>
+                        watch("hashtagsIds")?.includes(option?.value)
+                    )}
+                    styles={customStyles}
+                />
+                {errors?.hashtagsIds?.type === "required" && (
+                    <span className="text-danger" style={{ fontSize: "16px" }}>
+                        {i18n.language === "en" ? " Required" : "এই তথ্যটি আবশ্যক"}
+                    </span>
+                )}
+
+
+            </Col>
+        </div>
+    );
+};
+
+export default HashTagLists;
